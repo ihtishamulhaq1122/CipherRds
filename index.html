@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RDS Management</title>
+  
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.2.0/socket.io.js"></script>
+
+  
+
+  <style>
+    body {
+      padding-top: 70px; 
+    }
+    .top-buttons {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+    }
+    .footer {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      background-color: rgb(8, 8, 8);
+      color: white;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container mt-5">
+  <h1>RDS Management</h1>
+
+  <!-- Table -->
+  <table class="table">
+    <thead>
+      <tr>
+        <th>RDS Instance</th>
+        <th>Status</th>
+        <th>Occupied by</th>
+        <th>Stopwatch</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      
+    </tbody>
+  </table>
+
+  
+  <form id="occupyDetails" style="display: none;">
+    <div class="mb-3">
+      <label for="rdsSelect" class="form-label">Select RDS:</label>
+      <select class="form-select" id="rdsSelect"></select>
+    </div>
+    <div class="mb-3">
+      <label for="occupierSelect" class="form-label">Occupied by:</label>
+      <select class="form-select" id="occupierSelect"></select>
+    </div>
+    <button type="button" class="btn btn-primary" onclick="submitOccupancy()">Submit</button>
+  </form>
+</div>
+
+
+<div class="top-buttons">
+  <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addRDSModal">Add RDS</button>
+  <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addPersonModal">Add Person</button>
+</div>
+
+
+<div class="alert alert-success alert-dismissible fade show" role="alert" id="successMessage" style="display: none;">
+  Operation successful!
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+
+<!-- modal -->
+<div class="modal fade" id="addRDSModal" tabindex="-1" aria-labelledby="addRDSModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addRDSModalLabel">Add RDS Instance</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="rdsInput" class="form-label">RDS Instance:</label>
+        <input type="text" class="form-control" id="rdsInputModal" placeholder="RDS Instance">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" onclick="addRDSModal()">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal fade" id="addPersonModal" tabindex="-1" aria-labelledby="addPersonModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addPersonModalLabel">Add Person</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="personInput" class="form-label">Person:</label>
+        <input type="text" class="form-control" id="personInputModal" placeholder="Person">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" onclick="addPersonModal()">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bootstrap JS and Popper.js (required for Bootstrap) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta2/dist/js/bootstrap.bundle.min.js"></script>
+<!-- WebSocket library -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.2.0/socket.io.js"></script>
+<script>
+  var stopwatches = {}; 
+  var socket = io('http://localhost:3002'); 
+debugger
+  
+  socket.on('message', function (data) {
+    console.log('Received WebSocket message:', data);
+ 
+  });
+
+  //  RDS dropdown options
+  document.addEventListener("DOMContentLoaded", function () {
+    populateRDSDropdown();
+    populateOccupierOptions();
+    loadPersistedData();
+  });
+
+ 
+  function populateRDSDropdown() {
+    var rdsSelect = document.getElementById("rdsSelect");
+
+    var rows = document.querySelectorAll('[data-instance]:not(.occupied)');
+    rows.forEach(function (row) {
+      var instance = row.getAttribute("data-instance");
+
+      var option = document.createElement("option");
+      option.value = instance;
+      option.text = instance;
+      rdsSelect.appendChild(option);
+
+      // stopwatch for each instance
+      stopwatches[instance] = new Stopwatch(instance);
+    });
+  }
+
+ 
+  function populateOccupierOptions() {
+    var occupierSelect = document.getElementById("occupierSelect");
+
+    
+    var persons = ["Ehtisham", "Hamza", "Asslam", "Afaq"];
+
+    persons.forEach(function (person) {
+      var option = document.createElement("option");
+      option.value = person;
+      option.text = person;
+      occupierSelect.appendChild(option);
+    });
+  }
+
+  // occupy button
+  function toggleForm(button) {
+    var row = button ? button.closest("tr") : null;
+    var statusBadge = row ? row.querySelector(".status-badge") : null;
+
+    // status check
+    if (!row || (statusBadge && statusBadge.textContent === "Free")) {
+      
+      document.getElementById("occupyDetails").style.display = "block";
+    }
+  }
+
+  // Submit
+  function submitOccupancy() {
+    var rdsInstance = document.getElementById("rdsSelect").value;
+    var row = document.querySelector('[data-instance="' + rdsInstance + '"]:not(.hidden)');
+
+    if (row) {
+      occupyRDS(row);
+    }
+  }
+
+  
+  function occupyRDS(row) {
+    var statusBadge = row ? row.querySelector(".status-badge") : null;
+
+    
+    if (statusBadge && statusBadge.textContent === "Free") {
+      var instance = row.getAttribute("data-instance");
+      var occupier = document.getElementById("occupierSelect").value;
+
+      // Start the stopwatch
+      stopwatches[instance].start();
+
+      // // Update local storage with occupied status and occupier
+      // var data = localStorage.getItem("rdsData") ? JSON.parse(localStorage.getItem("rdsData")) : {};
+      // data[instance] = { occupier };
+      // localStorage.setItem("rdsData", JSON.stringify(data));
+
+      // Update table row 
+      statusBadge.classList.remove("bg-success");
+      statusBadge.classList.add("bg-danger");
+      statusBadge.textContent = "Occupied";
+      row.querySelector("td:nth-child(3)").textContent = "Occupied by: " + occupier;
+
+      // Hide the form after submission
+      document.getElementById("occupyDetails").style.display = "none";
+
+      // Clear occupier dropdown options
+      document.getElementById("occupierSelect").value = "";
+
+      // Remove the occupied instance from the dropdown
+      var selectedIndex = document.getElementById("rdsSelect").selectedIndex;
+if (selectedIndex !== -1) {
+  document.getElementById("rdsSelect").remove(selectedIndex);
+}
+
+     
+      showSuccessMessage();
+
+      
+      socket.emit('message', `RDS ${instance} occupied by ${occupier}`);
+    }
+  }
+
+  // Change Status
+  function changeStatus(button) {
+    var row = button ? button.closest("tr") : null;
+    var statusBadge = row ? row.querySelector(".status-badge") : null;
+
+    
+    if (statusBadge && statusBadge.textContent === "Occupied") {
+      
+      var confirmChange = confirm("Paki Bat Hay?");
+      if (confirmChange) {
+        
+        var instance = row.getAttribute("data-instance");
+        stopwatches[instance].stop();
+
+   
+        // var data = localStorage.getItem("rdsData") ? JSON.parse(localStorage.getItem("rdsData")) : {};
+        // data[instance] = { occupier: "" };
+        // localStorage.setItem("rdsData", JSON.stringify(data));
+
+        // Update table row with changed status
+        statusBadge.classList.remove("bg-danger");
+        statusBadge.classList.add("bg-success");
+        statusBadge.textContent = "Free";
+        row.querySelector("td:nth-child(3)").textContent = "";
+
+        // Add the instance back to the dropdown
+        var rdsSelect = document.getElementById("rdsSelect");
+        var option = document.createElement("option");
+        option.value = instance;
+        option.text = instance;
+        rdsSelect.appendChild(option);
+
+        showSuccessMessage();
+
+        // Send WebSocket message
+        socket.emit('message', `RDS ${instance} is now free`);
+      }
+    }
+  }
+
+  // Function to load  data
+  function loadPersistedData() {
+    var data = localStorage.getItem("rdsData") ? JSON.parse(localStorage.getItem("rdsData")) : {};
+
+    for (var instance in data) {
+      var row = document.querySelector('[data-instance="' + instance + '"]');
+      if (row) {
+        var statusBadge = row.querySelector(".status-badge");
+        var occupier = data[instance].occupier;
+
+        if (occupier) {
+          // Start the stopwatch for previously occupied instances
+          stopwatches[instance].start();
+
+          statusBadge.classList.remove("bg-success");
+          statusBadge.classList.add("bg-danger");
+          statusBadge.textContent = "Occupied";
+          row.querySelector("td:nth-child(3)").textContent = "Occupied by: " + occupier;
+
+          // Remove the occupied instance from the dropdown
+          var rdsSelect = document.getElementById("rdsSelect");
+          var optionIndex = Array.from(rdsSelect.options).findIndex(option => option.value === instance);
+          if (optionIndex !== -1) {
+            rdsSelect.remove(optionIndex);
+          }
+        }
+      }
+    }
+  }
+
+  // Function to add RDS 
+  function addRDS() {
+    var rdsInput = document.getElementById("rdsInput");
+    var rdsInstance = rdsInput.value.trim();
+
+    if (rdsInstance !== "") {
+      
+      var tbody = document.querySelector("table tbody");
+      var newRow = document.createElement("tr");
+      newRow.setAttribute("data-instance", rdsInstance);
+      newRow.innerHTML = `
+        <td>${rdsInstance}</td>
+        <td><span class="status-badge badge bg-success">Free</span></td>
+        <td></td>
+        <td><span id="stopwatch_${rdsInstance}">00:00:00</span></td>
+        <td>
+          <button type="button" class="btn btn-primary" onclick="toggleForm(this)">Occupy</button>
+          <button type="button" class="btn btn-danger" onclick="changeStatus(this)">Change Status</button>
+        </td>
+      `;
+
+      
+      tbody.appendChild(newRow);
+
+      var rdsSelect = document.getElementById("rdsSelect");
+      var option = document.createElement("option");
+      option.value = rdsInstance;
+      option.text = rdsInstance;
+      rdsSelect.appendChild(option);
+
+      // Initialize stopwatch for the new instance
+      stopwatches[rdsInstance] = new Stopwatch(rdsInstance);
+
+      // Clear the input box
+      rdsInput.value = "";
+
+      // Show success message
+      showSuccessMessage();
+    }
+  }
+
+  // Function to add RDS instance dynamically from modal
+  function addRDSModal() {
+    var rdsInputModal = document.getElementById("rdsInputModal");
+    var rdsInstance = rdsInputModal.value.trim();
+
+    if (rdsInstance !== "") {
+      // Create a new table row for the RDS instance
+      var tbody = document.querySelector("table tbody");
+      var newRow = document.createElement("tr");
+      newRow.setAttribute("data-instance", rdsInstance);
+      newRow.innerHTML = `
+        <td>${rdsInstance}</td>
+        <td><span class="status-badge badge bg-success">Free</span></td>
+        <td></td>
+        <td><span id="stopwatch_${rdsInstance}">00:00:00</span></td>
+        <td>
+          <button type="button" class="btn btn-primary" onclick="toggleForm(this)">Occupy</button>
+          <button type="button" class="btn btn-danger" onclick="changeStatus(this)">Change Status</button>
+        </td>
+      `;
+
+      // Append the new row to the table
+      tbody.appendChild(newRow);
+
+      // Add the new RDS instance to the dropdown
+      var rdsSelect = document.getElementById("rdsSelect");
+      var option = document.createElement("option");
+      option.value = rdsInstance;
+      option.text = rdsInstance;
+      rdsSelect.appendChild(option);
+
+      // Initialize stopwatch for the new instance
+      stopwatches[rdsInstance] = new Stopwatch(rdsInstance);
+
+      // Clear the input box
+      rdsInputModal.value = "";
+
+      // Hide the modal
+      var addRDSModal = new bootstrap.Modal(document.getElementById('addRDSModal'));
+      addRDSModal.hide();
+
+      // Show success message
+      showSuccessMessage();
+    }
+  }
+
+  // Function to add person dynamically
+  function addPerson() {
+    var personInput = document.getElementById("personInput");
+    var person = personInput.value.trim();
+
+    if (person !== "") {
+      // Add the new person to the dropdown
+      var occupierSelect = document.getElementById("occupierSelect");
+      var option = document.createElement("option");
+      option.value = person;
+      option.text = person;
+      occupierSelect.appendChild(option);
+
+      // Clear the input box
+      personInput.value = "";
+
+      // Show success message
+      showSuccessMessage();
+    }
+  }
+
+  // Function to add person dynamically from modal
+  function addPersonModal() {
+    var personInputModal = document.getElementById("personInputModal");
+    var person = personInputModal.value.trim();
+
+    if (person !== "") {
+      // Add the new person to the dropdown
+      var occupierSelect = document.getElementById("occupierSelect");
+      var option = document.createElement("option");
+      option.value = person;
+      option.text = person;
+      occupierSelect.appendChild(option);
+
+      // Clear the input box
+      personInputModal.value = "";
+
+      // Hide the modal
+      var addPersonModal = new bootstrap.Modal(document.getElementById('addPersonModal'));
+      addPersonModal.hide();
+
+      // Show success message
+      showSuccessMessage();
+    }
+  }
+
+  // Function to show success message
+  function showSuccessMessage() {
+    var successMessage = document.getElementById("successMessage");
+    successMessage.style.display = "block";
+    setTimeout(function () {
+      successMessage.style.display = "none";
+    }, 3000);
+  }
+
+  // Stopwatch constructor
+  function Stopwatch(instance) {
+    this.instance = instance;
+    this.startTime = 0;
+    this.interval = null;
+
+    this.start = function () {
+      this.startTime = Date.now();
+      this.interval = setInterval(this.update.bind(this), 1000);
+    };
+
+    this.stop = function () {
+      clearInterval(this.interval);
+      this.interval = null;
+    };
+
+    this.update = function () {
+      var elapsedSeconds = Math.floor((Date.now() - this.startTime) / 1000);
+      var hours = Math.floor(elapsedSeconds / 3600);
+      var minutes = Math.floor((elapsedSeconds % 3600) / 60);
+      var seconds = elapsedSeconds % 60;
+
+      var formattedTime = hours.toString().padStart(2, '0') + ':' +
+                          minutes.toString().padStart(2, '0') + ':' +
+                          seconds.toString().padStart(2, '0');
+
+      document.getElementById("stopwatch_" + this.instance).textContent = formattedTime;
+    };
+  }
+</script>
+<div class="footer">
+  <p>Developed By Ehtisham </p>
+</div>
+</body>
+</html>
